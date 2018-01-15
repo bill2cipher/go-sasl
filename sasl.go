@@ -1,5 +1,11 @@
 package sasl
 
+import (
+	"errors"
+	"fmt"
+	"strings"
+)
+
 const (
 	// SaslPropertyQop is a property that specifies the quality-of-protection to use.
 	// The property contains a comma-separated, ordered list
@@ -165,12 +171,15 @@ const (
 	LOW_STRENGTH              = byte(1)
 	MEDIUM_STRENGTH           = byte(2)
 	HIGH_STRENGTH             = byte(4)
-	// DEFAULT_QOP =
-	// QOP_TOKENS
-	// QOP_MASKS
-	// DEFAULT_STRENGTH
-	// STRENGTH_TOKENS
-	// STRENGTH_MASKS
+)
+
+var (
+	DEFAULT_QOP      = []byte{NO_PROTECTION}
+	QOP_TOKENS       = []string{"auth-conf", "auth-int", "auth"}
+	QOP_MASKS        = []byte{PRIVACY_PROTECTION, INTEGRITY_ONLY_PROTECTION, NO_PROTECTION}
+	DEFAULT_STRENGTH = []byte{HIGH_STRENGTH, MEDIUM_STRENGTH, LOW_STRENGTH}
+	STRENGTH_TOKENS  = []string{"low", "medium", "high"}
+	STRENGTH_MASKS   = []byte{LOW_STRENGTH, MEDIUM_STRENGTH, HIGH_STRENGTH}
 )
 
 // Sasl defines the policy of how to locate, load, and instantiate
@@ -192,7 +201,7 @@ type Sasl struct {
 // will not be called until the caller has received indication
 // from the server (in a protocol-specific manner) that the exchange has completed.
 func (s *Sasl) IsCompete() bool {
-	return false
+	return s.Completed
 }
 
 // GetNegotiatedProperty retrieves the negotiated property.
@@ -200,36 +209,114 @@ func (s *Sasl) IsCompete() bool {
 // completed (i.e., when IsComplete() returns true); otherwise, an
 // error is returned.
 func (s *Sasl) GetNegotiatedProperty(propName string) (interface{}, error) {
-	return nil, nil
+	if !s.Completed {
+		return nil, errors.New("sasl authentication not completed")
+	}
+	switch propName {
+	case SaslPropertyQop:
+		if s.Privacy {
+			return "auth-conf", nil
+		} else if s.Integrity {
+			return "auth-int", nil
+		} else {
+			return "auth", nil
+		}
+	case SaslPropertyMaxBuffer:
+		return fmt.Sprintf("%d", s.RecvMaxBufSize), nil
+	case SaslPropertyRawSendSize:
+		return fmt.Sprintf("%d", s.RawSendSize), nil
+	case SaslPropertyMaxBuffer:
+		return fmt.Sprintf("%d", s.SendMaxBufSize), nil
+	default:
+		return nil, nil
+	}
 }
 
-func (s *Sasl) combineMasks(arg0 []byte) byte {
+func (s *Sasl) combineMasks(in []byte) byte {
+	answer := byte(0)
+	for i := 0; i < len(in); i++ {
+		answer |= in[i]
+	}
+	return answer
+}
+
+func (s *Sasl) findPreferredMask(pref byte, in []byte) byte {
+	for i := 0; i < len(in); i++ {
+		if (in[i] & pref) != 0 {
+			return in[i]
+		}
+	}
 	return 0
 }
 
-func (s *Sasl) findPreferredMask(arg0 byte, arg1 []byte) byte {
-	return 0
-}
-func (s *Sasl) parseQop(arg0 string) ([]byte, error) {
-	return nil, nil
-}
-func (s *Sasl) parseQop2(arg0 string, arg1 []string, arg2 bool) ([]byte, error) {
-	return nil, nil
-}
-func (s *Sasl) parseStrength(arg0 string) ([]byte, error) {
-	return nil, nil
-}
-func (s *Sasl) parseProp(arg0, arg1 string, arg2 []string, arg3 []byte, arg4 []string, arg5 bool) ([]byte, error) {
-	return nil, nil
+func (s *Sasl) parseQop(qop string) ([]byte, error) {
+	return s.parseQop2(qop, nil, false)
 }
 
-func (s *Sasl) traceOutput(arg0, arg1, arg2 string, arg3 []byte) {
-}
-func (s *Sasl) traceOutput2(arg0, arg1, arg2 string, arg3 []byte, arg4, arg5 int) {
-}
-func (s *Sasl) networkByteOrderToInt(arg0 []byte, arg1, arg2 int) int {
-	return 0
+func (s *Sasl) parseQop2(qop string, saveTokens []string, ignore bool) ([]byte, error) {
+	if qop == "" {
+		return DEFAULT_QOP, nil
+	}
+	return s.parseProp(SaslPropertyQop, qop, QOP_TOKENS, QOP_MASKS, saveTokens, ignore)
 }
 
-func (s *Sasl) intToNetworkByteOrder(arg0 int, arg1 []byte, arg2, arg3 int) {
+func (s *Sasl) parseStrength(strength string) ([]byte, error) {
+	if len(strength) <= 0 {
+		return DEFAULT_STRENGTH, nil
+	}
+	return s.parseProp(SaslPropertyStrength, strength, STRENGTH_TOKENS, STRENGTH_MASKS, nil, false)
+}
+
+func (s *Sasl) parseProp(propName, propVal string, vals []string, masks []byte, tokens []string, ignore bool) ([]byte, error) {
+	found := false
+	parts := strings.Split(propVal, ", \t\n")
+	answer := make([]byte, len(vals), len(vals))
+	i := 0
+	for i = 0; i < len(answer) && i < len(parts); i++ {
+		found = false
+		for j := 0; !found && j < len(vals); j++ {
+			if strings.ToLower(parts[i]) != strings.ToLower(vals[i]) {
+				continue
+			}
+			found = true
+			answer[i] = masks[j]
+			if tokens != nil {
+				tokens[j] = parts[i]
+			}
+		}
+		if !found && !ignore {
+			return nil, fmt.Errorf("Invalid token in %s: %s", propName, propVal)
+		}
+	}
+
+	for j := i; j < len(answer); j++ {
+		answer[j] = 0
+	}
+	return answer, nil
+}
+
+// Returns the integer represented by 4 bytes in network byte order.
+func (s *Sasl) networkByteOrderToInt(buf []byte, start, count int) (int, error) {
+	if count > 4 {
+		return 0, errors.New("cannot handle more than 4 bytes")
+	}
+	result := 0
+	for idx := 0; idx < count; idx++ {
+		result <<= 8
+		result |= int(buf[start+idx]) & 0xFF
+	}
+	return result, nil
+}
+
+// Encodes an integer into 4 bytes in network byte order in the buffer
+func (s *Sasl) intToNetworkByteOrder(num int, buf []byte, start, count int) error {
+	if count > 4 {
+		return errors.New("cannot handle more than 4 bytes")
+	}
+	uNum := uint32(num)
+	for idx := count - 1; idx >= 0; idx-- {
+		buf[start+idx] = byte(uNum & 0xFF)
+		uNum >>= 8
+	}
+	return nil
 }
