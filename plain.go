@@ -105,7 +105,7 @@ func (c *PlainClient) GetNegotiatedProperty(propName string) (interface{}, error
 		return nil, errors.New("PLAIN authentication not completed")
 	}
 
-	if propName == Sasl.QOP {
+	if propName == SaslPropertyQop {
 		return "auth", nil
 	}
 	return nil, nil

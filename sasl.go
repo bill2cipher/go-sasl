@@ -225,14 +225,15 @@ func (s *Sasl) GetNegotiatedProperty(propName string) (interface{}, error) {
 		return fmt.Sprintf("%d", s.RecvMaxBufSize), nil
 	case SaslPropertyRawSendSize:
 		return fmt.Sprintf("%d", s.RawSendSize), nil
-	case SaslPropertyMaxBuffer:
+	case MAX_SEND_BUF:
 		return fmt.Sprintf("%d", s.SendMaxBufSize), nil
 	default:
 		return nil, nil
 	}
 }
 
-func (s *Sasl) combineMasks(in []byte) byte {
+// CombineMasks combine the masks
+func (s *Sasl) CombineMasks(in []byte) byte {
 	answer := byte(0)
 	for i := 0; i < len(in); i++ {
 		answer |= in[i]
@@ -240,7 +241,8 @@ func (s *Sasl) combineMasks(in []byte) byte {
 	return answer
 }
 
-func (s *Sasl) findPreferredMask(pref byte, in []byte) byte {
+// FindPreferredMask find the preferred mask
+func (s *Sasl) FindPreferredMask(pref byte, in []byte) byte {
 	for i := 0; i < len(in); i++ {
 		if (in[i] & pref) != 0 {
 			return in[i]
@@ -249,25 +251,29 @@ func (s *Sasl) findPreferredMask(pref byte, in []byte) byte {
 	return 0
 }
 
-func (s *Sasl) parseQop(qop string) ([]byte, error) {
-	return s.parseQop2(qop, nil, false)
+// ParseQop parse qop property with empty tokens
+func (s *Sasl) ParseQop(qop string) ([]byte, error) {
+	return s.ParseQop2(qop, nil, false)
 }
 
-func (s *Sasl) parseQop2(qop string, saveTokens []string, ignore bool) ([]byte, error) {
+// ParseQop2 parse qop property
+func (s *Sasl) ParseQop2(qop string, saveTokens []string, ignore bool) ([]byte, error) {
 	if qop == "" {
 		return DEFAULT_QOP, nil
 	}
-	return s.parseProp(SaslPropertyQop, qop, QOP_TOKENS, QOP_MASKS, saveTokens, ignore)
+	return s.ParseProp(SaslPropertyQop, qop, QOP_TOKENS, QOP_MASKS, saveTokens, ignore)
 }
 
-func (s *Sasl) parseStrength(strength string) ([]byte, error) {
+// ParseStrength parse strength property
+func (s *Sasl) ParseStrength(strength string) ([]byte, error) {
 	if len(strength) <= 0 {
 		return DEFAULT_STRENGTH, nil
 	}
-	return s.parseProp(SaslPropertyStrength, strength, STRENGTH_TOKENS, STRENGTH_MASKS, nil, false)
+	return s.ParseProp(SaslPropertyStrength, strength, STRENGTH_TOKENS, STRENGTH_MASKS, nil, false)
 }
 
-func (s *Sasl) parseProp(propName, propVal string, vals []string, masks []byte, tokens []string, ignore bool) ([]byte, error) {
+// ParseProp parse property value from given vals
+func (s *Sasl) ParseProp(propName, propVal string, vals []string, masks []byte, tokens []string, ignore bool) ([]byte, error) {
 	found := false
 	parts := strings.Split(propVal, ", \t\n")
 	answer := make([]byte, len(vals), len(vals))
@@ -295,8 +301,8 @@ func (s *Sasl) parseProp(propName, propVal string, vals []string, masks []byte, 
 	return answer, nil
 }
 
-// Returns the integer represented by 4 bytes in network byte order.
-func (s *Sasl) networkByteOrderToInt(buf []byte, start, count int) (int, error) {
+// NetworkByteOrderToInt returns the integer represented by 4 bytes in network byte order.
+func (s *Sasl) NetworkByteOrderToInt(buf []byte, start, count int) (int, error) {
 	if count > 4 {
 		return 0, errors.New("cannot handle more than 4 bytes")
 	}
@@ -308,8 +314,8 @@ func (s *Sasl) networkByteOrderToInt(buf []byte, start, count int) (int, error) 
 	return result, nil
 }
 
-// Encodes an integer into 4 bytes in network byte order in the buffer
-func (s *Sasl) intToNetworkByteOrder(num int, buf []byte, start, count int) error {
+// IntToNetworkByteOrder encodes an integer into 4 bytes in network byte order in the buffer
+func (s *Sasl) IntToNetworkByteOrder(num int, buf []byte, start, count int) error {
 	if count > 4 {
 		return errors.New("cannot handle more than 4 bytes")
 	}
