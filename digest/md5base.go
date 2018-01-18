@@ -54,5 +54,7 @@ var (
 // for quality-of-protection (QOP) with integrity checking and
 // privacy.
 type MD5Base struct {
-	sasl.Sasl
+	*sasl.Sasl
+	hA1              []byte
+	negotiatedCipher string
 }
