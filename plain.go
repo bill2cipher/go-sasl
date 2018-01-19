@@ -19,7 +19,7 @@ type PlainClient struct {
 
 // NewPlainClient creates a new PlainClient instance
 func NewPlainClient(authorizationID, authenticationID string, pw []byte) (*PlainClient, error) {
-	if len(authenticationID) <= 0 || pw == nil {
+	if len(authenticationID) <= 0 && pw == nil {
 		return nil, errors.New("PLAIN: authorization ID and password must be specified")
 	}
 	client := &PlainClient{
